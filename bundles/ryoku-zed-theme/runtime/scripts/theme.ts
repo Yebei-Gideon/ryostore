@@ -79,22 +79,41 @@ function fromOklch({ l: L, c: requestedC, h }: Oklch): string {
   return `#${channels.map((v) => v.toString(16).padStart(2, "0")).join("")}`;
 }
 
-function makeReadable(color: string, background: string, minimum = 4.5): string {
-  if ((contrast(color, background) ?? Infinity) >= minimum) return color;
-  const bg = hex(background), fg = toOklch(color);
-  if (!bg || !fg) return color;
-  const brighten = luminance(bg) < 0.45;
-  let low = brighten ? fg.l : 0, high = brighten ? 1 : fg.l;
-  for (let i = 0; i < 24; i++) {
-    const mid = (low + high) / 2;
-    const candidate = fromOklch({ ...fg, l: mid });
-    if ((contrast(candidate, background) ?? 0) >= minimum) {
-      if (brighten) high = mid;
-      else low = mid;
-    } else if (brighten) low = mid;
-    else high = mid;
+function makeReadable(
+  color: string,
+  background: string,
+  minimum = 4.5,
+): string {
+  const initialRatio = contrast(color, background);
+  if (initialRatio !== null && initialRatio >= minimum) return color;
+
+  const fg = toOklch(color);
+  if (!hex(background) || !fg) return color;
+
+  // Search for the closest readable lightness in both directions.
+  let best: { color: string; distance: number } | null = null;
+
+  for (let i = 0; i <= 200; i++) {
+    const lightness = i / 200;
+    const candidate = fromOklch({ ...fg, l: lightness });
+    const ratio = contrast(candidate, background);
+
+    if (ratio !== null && ratio >= minimum) {
+      const distance = Math.abs(lightness - fg.l);
+
+      if (!best || distance < best.distance) {
+        best = { color: candidate, distance };
+      }
+    }
   }
-  return fromOklch({ ...fg, l: brighten ? high : low });
+
+  if (best) return best.color;
+
+  // Guaranteed high-contrast fallback for valid hex backgrounds.
+  const blackRatio = contrast("#000000", background) ?? 0;
+  const whiteRatio = contrast("#ffffff", background) ?? 0;
+
+  return blackRatio >= whiteRatio ? "#000000" : "#ffffff";
 }
 
 const syntaxHueOffsets: Record<string, number> = {
